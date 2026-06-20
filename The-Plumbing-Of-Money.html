@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Plumbing of Money — How the Banking System Settles</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0A1014;
+    --ink-2:#0E161B;
+    --panel:#121C22;
+    --panel-2:#16232A;
+    --line:#22343D;
+    --line-soft:#1A2A32;
+    --text:#E7EEF1;
+    --muted:#7E929B;
+    --muted-2:#566A72;
+    --value:#D6A94E;     /* settlement / reserves moving */
+    --value-dim:#7C6228;
+    --msg:#48B4CE;       /* instruction / message moving */
+    --msg-dim:#235863;
+    --reserve:#9FB4C2;   /* central-bank tier */
+    --alert:#CC6150;     /* chokepoint / risk */
+    --radius:7px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--ink);color:var(--text);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    background-image:
+      linear-gradient(rgba(255,255,255,.015) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.015) 1px,transparent 1px);
+    background-size:44px 44px;
+    background-position:center top;
+  }
+  .wrap{max-width:1280px;margin:0 auto;padding:0 22px}
+
+  /* ---------- Header ---------- */
+  header{padding:64px 0 30px;border-bottom:1px solid var(--line-soft)}
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.34em;
+    text-transform:uppercase;color:var(--msg);margin:0 0 18px;
+    display:flex;align-items:center;gap:12px;
+  }
+  .eyebrow::before{content:"";width:34px;height:1px;background:var(--msg)}
+  h1{
+    font-family:"Space Grotesk",sans-serif;font-weight:600;
+    font-size:clamp(2.2rem,5.4vw,4.1rem);line-height:1.02;
+    letter-spacing:-.02em;margin:0 0 20px;
+  }
+  h1 .alt{color:var(--value)}
+  .lede{max-width:660px;color:var(--muted);font-size:1.05rem;margin:0}
+  .lede b{color:var(--text);font-weight:500}
+
+  /* ---------- Legend ---------- */
+  .legend{
+    display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:30px;
+    font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--muted);
+  }
+  .legend .k{display:flex;align-items:center;gap:10px}
+  .swatch{width:30px;height:0;border-top-width:2px;border-top-style:solid;position:relative}
+  .swatch.val{border-color:var(--value)}
+  .swatch.val::after{content:"";position:absolute;right:-2px;top:-3px;width:4px;height:4px;border-radius:50%;background:var(--value)}
+  .swatch.msg{border-color:var(--msg);border-top-style:dashed}
+  .swatch.ovr{border-color:var(--reserve);border-top-style:dotted}
+  .legend .k b{color:var(--text);font-weight:500}
+
+  /* ---------- Nav ---------- */
+  nav.boards{
+    position:sticky;top:0;z-index:30;background:rgba(10,16,20,.86);
+    backdrop-filter:blur(9px);border-bottom:1px solid var(--line-soft);
+    margin-top:34px;
+  }
+  nav.boards .wrap{display:flex;gap:4px;overflow-x:auto}
+  nav.boards button{
+    background:none;border:0;color:var(--muted);cursor:pointer;
+    font-family:"IBM Plex Mono",monospace;font-size:12.5px;letter-spacing:.04em;
+    padding:16px 16px 14px;border-bottom:2px solid transparent;white-space:nowrap;
+    transition:color .18s,border-color .18s;
+  }
+  nav.boards button .n{color:var(--muted-2);margin-right:8px}
+  nav.boards button:hover{color:var(--text)}
+  nav.boards button.active{color:var(--text);border-bottom-color:var(--value)}
+  nav.boards button.active .n{color:var(--value)}
+
+  /* ---------- Board layout ---------- */
+  main{padding:30px 0 90px}
+  .board{display:none}
+  .board.active{display:block;animation:fade .4s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .board-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin:18px 0 6px}
+  .board-head h2{
+    font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:1.6rem;
+    letter-spacing:-.01em;margin:0;
+  }
+  .board-head .tag{
+    font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--muted-2);
+  }
+  .board-sub{color:var(--muted);max-width:760px;margin:4px 0 14px;font-size:.97rem}
+
+  .stage{
+    display:grid;grid-template-columns:1fr 312px;gap:18px;align-items:start;
+  }
+  .canvas{
+    background:linear-gradient(180deg,var(--ink-2),var(--ink));
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;position:relative;
+  }
+  .canvas svg{display:block;width:100%;height:auto}
+
+  /* ---------- Detail drawer ---------- */
+  .drawer{
+    position:sticky;top:64px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:20px;min-height:300px;
+  }
+  .drawer .pill{
+    display:inline-flex;align-items:center;gap:8px;
+    font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--ink);font-weight:600;
+    padding:4px 9px;border-radius:20px;background:var(--muted);margin-bottom:14px;
+  }
+  .drawer .pill.value{background:var(--value)}
+  .drawer .pill.message{background:var(--msg)}
+  .drawer .pill.reserve{background:var(--reserve)}
+  .drawer .pill.user{background:#8FA0A8}
+  .drawer h3{
+    font-family:"Space Grotesk",sans-serif;font-weight:600;font-size:1.28rem;
+    margin:0 0 4px;letter-spacing:-.01em;line-height:1.12;
+  }
+  .drawer .sub{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--msg);margin:0 0 14px}
+  .drawer p{font-size:.92rem;color:var(--muted);margin:0 0 13px}
+  .drawer p b{color:var(--text);font-weight:500}
+  .drawer .facts{list-style:none;margin:6px 0 0;padding:14px 0 0;border-top:1px solid var(--line-soft)}
+  .drawer .facts li{display:flex;gap:10px;font-size:.84rem;color:var(--muted);margin-bottom:7px}
+  .drawer .facts li span{font-family:"IBM Plex Mono",monospace;color:var(--value);min-width:74px;flex-shrink:0;font-size:11.5px;padding-top:1px}
+  .drawer .hint{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--muted-2);letter-spacing:.02em}
+
+  /* ---------- SVG node styling ---------- */
+  .node{cursor:pointer}
+  .node rect{transition:stroke .18s,fill .18s,filter .18s}
+  .node:hover rect.box, .node:focus-visible rect.box{stroke:var(--value);filter:drop-shadow(0 0 8px rgba(214,169,78,.25))}
+  .node.sel rect.box{stroke:var(--value);filter:drop-shadow(0 0 10px rgba(214,169,78,.35))}
+  .node:focus{outline:none}
+  .node .lbl{font-family:"IBM Plex Mono",monospace;font-weight:600;fill:var(--text);font-size:13px;letter-spacing:.01em}
+  .node .sub{font-family:"IBM Plex Sans",sans-serif;fill:var(--muted);font-size:11px}
+  .node.t-reserve rect.box{fill:#13242E;stroke:#2C4756}
+  .node.t-reserve .lbl{fill:#D7E6EF}
+  .node.t-value rect.box{fill:#1B1A10;stroke:#3E3417}
+  .node.t-message rect.box{fill:#10212A;stroke:#234953}
+  .node.t-bank rect.box{fill:#141E24;stroke:#26383F}
+  .node.t-user rect.box{fill:#131A1E;stroke:#222E33}
+  .node.t-bis rect.box{fill:#1F1614;stroke:#4A2C26}
+  .node.t-bis .lbl{fill:#F0DCD6}
+  .tierband{fill:var(--reserve);opacity:.04}
+  .tierlabel{font-family:"IBM Plex Mono",monospace;fill:var(--muted-2);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase}
+  .linklabel{font-family:"IBM Plex Mono",monospace;fill:var(--muted);font-size:10px}
+  .callout{font-family:"IBM Plex Sans",sans-serif;fill:var(--muted);font-size:12px}
+  .callout.em{fill:var(--value);font-weight:500}
+
+  .link-msg{fill:none;stroke:var(--msg);stroke-width:1.6;stroke-dasharray:5 5;opacity:.8;animation:flow 1.1s linear infinite}
+  .link-val{fill:none;stroke:var(--value);stroke-width:1.8;opacity:.85}
+  .link-ovr{fill:none;stroke:var(--reserve);stroke-width:1.3;stroke-dasharray:2 5;opacity:.5}
+  @keyframes flow{to{stroke-dashoffset:-20}}
+  .pulse{fill:var(--value)}
+  .arrowv{fill:var(--value)}
+  .arrowm{fill:var(--msg)}
+
+  footer{border-top:1px solid var(--line-soft);padding:30px 0 60px;color:var(--muted-2);font-size:.82rem}
+  footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  footer b{color:var(--muted);font-weight:500}
+
+  @media (max-width:880px){
+    .stage{grid-template-columns:1fr}
+    .drawer{position:static;order:-1}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .link-msg{animation:none}
+    .pulse{display:none}
+    .board.active{animation:none}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">Settlement schematic · v1</p>
+    <h1>The plumbing<br>of <span class="alt">money</span>.</h1>
+    <p class="lede">Banking isn't one network — it's stacked layers of <b>messaging</b> and <b>settlement</b> that almost never move the same way. An instruction races one way as data; the actual value settles separately, often hours later, as a balance change on a central bank's ledger. This maps the two channels — domestically in the US, across borders, and worldwide. <b>Tap any node</b> for what it does.</p>
+
+    <div class="legend">
+      <div class="k"><span class="swatch val"></span> <b>Value / settlement</b> — reserves & funds actually move</div>
+      <div class="k"><span class="swatch msg"></span> <b>Message / instruction</b> — data moves, money doesn't</div>
+      <div class="k"><span class="swatch ovr"></span> <b>Oversight / standards</b> — rules, not flows</div>
+    </div>
+  </div>
+</header>
+
+<nav class="boards">
+  <div class="wrap">
+    <button data-board="us" class="active"><span class="n">01</span>US domestic rails</button>
+    <button data-board="xb"><span class="n">02</span>Cross-border bridge</button>
+    <button data-board="gl"><span class="n">03</span>Global architecture</button>
+  </div>
+</nav>
+
+<main>
+  <div class="wrap">
+
+    <!-- BOARD 1 -->
+    <section class="board active" id="board-us">
+      <div class="board-head">
+        <h2>How a US payment settles</h2>
+        <span class="tag">USD · Federal Reserve as the floor</span>
+      </div>
+      <p class="board-sub">Read it bottom-up. People and firms send <em>instructions</em> to their banks (cyan). Banks hand those to a <em>rail</em>. Every rail ultimately settles by moving <em>central-bank reserves</em> at the Federal Reserve (gold) — the one asset every US bank trusts as final.</p>
+      <div class="stage">
+        <div class="canvas"><svg id="svg-us" viewBox="0 0 1240 860" role="img" aria-label="US domestic payment system schematic"></svg></div>
+        <aside class="drawer" id="drawer-us"></aside>
+      </div>
+    </section>
+
+    <!-- BOARD 2 -->
+    <section class="board" id="board-xb">
+      <div class="board-head">
+        <h2>Sending money abroad</h2>
+        <span class="tag">USD → EUR · the message/value split, exposed</span>
+      </div>
+      <p class="board-sub">The hard truth of cross-border payments: <em>money never leaves the country</em>. A SWIFT message travels (cyan); the value is settled by adjusting <em>correspondent accounts</em> banks hold with each other, with each currency's leg settling inside its own domestic system (gold). Follow one payment left-to-right.</p>
+      <div class="stage">
+        <div class="canvas"><svg id="svg-xb" viewBox="0 0 1240 760" role="img" aria-label="Cross-border payment schematic"></svg></div>
+        <aside class="drawer" id="drawer-xb"></aside>
+      </div>
+    </section>
+
+    <!-- BOARD 3 -->
+    <section class="board" id="board-gl">
+      <div class="board-head">
+        <h2>The world's settlement web</h2>
+        <span class="tag">Central banks · one messaging fabric · FX glue</span>
+      </div>
+      <p class="board-sub">Each currency has its own central bank and real-time settlement system (gold). One cooperative messaging fabric — SWIFT — overlays nearly all of them (cyan). FX trades between currencies are settled simultaneously by CLS so neither side pays first. Above it all, the BIS sets the rules (dotted).</p>
+      <div class="stage">
+        <div class="canvas"><svg id="svg-gl" viewBox="0 0 1240 740" role="img" aria-label="Global financial architecture schematic"></svg></div>
+        <aside class="drawer" id="drawer-gl"></aside>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>Schematic, not exhaustive. Simplifies netting, intraday credit, and prefunding mechanics for legibility.</div>
+    <div><b>Channels:</b> message ≠ settlement. That distinction is the whole point.</div>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+   DATA
+   ============================================================ */
+
+// ---- node detail content ----
+const DETAILS = {
+  /* ---- US domestic ---- */
+  fed:{type:"reserve",name:"Federal Reserve",sub:"Central bank · the settlement asset",
+    p:"<b>Every US dollar payment ends here.</b> Banks hold reserve (\"master\") accounts at the Fed, and final settlement just means debiting one bank's reserve balance and crediting another's. Reserves are the only asset banks treat as completely final — they can't bounce.",
+    facts:[["Role","Operator of Fedwire, FedACH, FedNow, NSS"],["Settles in","Central bank reserves"],["Finality","Irrevocable, real-time (RTGS rails)"]]},
+  fwf:{type:"value",name:"Fedwire Funds",sub:"Large-value RTGS",
+    p:"The Fed's <b>real-time gross settlement</b> rail. Each wire settles individually and instantly in reserves, and is final the moment it's done — no take-backs. This is the backbone for big, time-critical, irrevocable payments: bank-to-bank funding, home closings, securities purchases.",
+    facts:[["Settlement","Gross, real-time, final"],["Use","High-value, urgent, irrevocable"],["Format","ISO 20022 (migrated 2025)"]]},
+  fws:{type:"value",name:"Fedwire Securities",sub:"Book-entry Treasuries",
+    p:"The same idea as Fedwire Funds, but for <b>US Treasuries and agency securities</b>. Ownership exists only as book entries; this rail moves the security and the cash together so neither party is left exposed (delivery-versus-payment).",
+    facts:[["Holds","Treasuries, agency MBS"],["Settles","Delivery-vs-payment"],["Form","Pure book-entry"]]},
+  chips:{type:"value",name:"CHIPS",sub:"The Clearing House · netted large-value",
+    p:"A <b>privately operated</b> large-value system that nets payments through the day so banks move far less actual cash than the gross total. It clears the bulk of <b>cross-border US-dollar</b> payments between the world's correspondent banks, then settles the net over Fedwire.",
+    facts:[["Operator","The Clearing House (private)"],["Method","Real-time netting"],["Niche","Cross-border USD correspondent"]]},
+  nss:{type:"value",name:"National Settlement Service",sub:"Net settlement utility",
+    p:"The plumbing behind clearinghouses. When a network (cards, ACH operators, check clearing) calculates who owes whom, <b>NSS posts the net amounts</b> to each bank's reserve account at the Fed in one batch.",
+    facts:[["Function","Multilateral net settlement"],["Serves","Card, check, ACH networks"],["Settles in","Reserves"]]},
+  ach:{type:"value",name:"ACH (FedACH / EPN)",sub:"Batch · low-value retail",
+    p:"The workhorse for <b>payroll, direct deposit, bills and Venmo cash-outs</b>. Payments are collected in batches and settled net a few times a day — cheap, high-volume, slightly slow. Two operators (the Fed's FedACH and The Clearing House's EPN) run it under <b>Nacha</b> rules.",
+    facts:[["Speed","Batch, same/next-day"],["Rules","Nacha"],["Cost","Pennies per item"]]},
+  fednow:{type:"value",name:"FedNow",sub:"Instant RTGS · 24/7",
+    p:"The Fed's <b>instant</b> rail, live since 2023. Payments clear and settle in reserves in seconds, any hour, any day — the public-sector answer to a world that no longer waits for batch windows.",
+    facts:[["Launched","2023"],["Speed","Seconds, 24/7/365"],["Settles in","Reserves, real-time"]]},
+  rtp:{type:"value",name:"RTP",sub:"The Clearing House · instant",
+    p:"The private instant rail, live since 2017. Works like FedNow but is run by the big banks' clearinghouse and settles out of a <b>prefunded joint account</b> the participants keep at the Fed.",
+    facts:[["Launched","2017"],["Operator","The Clearing House"],["Settles via","Prefunded Fed balance"]]},
+  cards:{type:"message",name:"Card networks",sub:"Visa · Mastercard · Amex · Discover",
+    p:"Cards are mostly a <b>messaging and guarantee</b> layer. At the register, an authorization message flashes across the network in milliseconds; the real money settles a day or two later, as the networks tally net positions and push them through banks via ACH or wire.",
+    facts:[["At checkout","Authorization message only"],["Money moves","T+1/T+2 via banks"],["Players","4 major networks"]]},
+  banks:{type:"bank",name:"Commercial banks",sub:"Deposit-takers with Fed accounts",
+    p:"The hinge of the system. A bank turns your deposit (its liability) into access to the rails. Only institutions with a <b>Fed master account</b> can settle directly; everyone else reaches the rails through one of them.",
+    facts:[["Hold","Your deposits + Fed reserves"],["Access","Direct to rails"],["Examples","JPMorgan, BofA, Wells…"]]},
+  corr:{type:"bank",name:"Correspondent banks",sub:"Banks that bank other banks",
+    p:"Big banks that <b>hold accounts for smaller or foreign banks</b>, giving them reach into rails they can't touch directly. This is the mechanism that quietly powers nearly all cross-border money movement.",
+    facts:[["Provide","Rail & FX access"],["Hold","Other banks' balances"],["Key to","Cross-border payments"]]},
+  cu:{type:"bank",name:"Community banks & credit unions",sub:"Indirect participants",
+    p:"Thousands of smaller institutions that usually reach the rails <b>through a correspondent</b> or a banker's bank, rather than holding their own direct Fed connection.",
+    facts:[["Access","Mostly indirect"],["Via","Correspondents / Fed"],["Count","Thousands of them"]]},
+  fintech:{type:"bank",name:"Fintechs & BaaS",sub:"Apps riding sponsor banks",
+    p:"Most fintech apps <b>aren't banks</b>. They sit on top of a chartered \"sponsor\" bank that holds the real deposits and the Fed account. The app is the interface; the bank is the plumbing.",
+    facts:[["Are","Software, not banks"],["Need","A sponsor bank"],["Hold deposits","No — the bank does"]]},
+  consumers:{type:"user",name:"Consumers",sub:"Households",
+    p:"Where most instructions begin — taps, transfers, autopays. You almost never touch a rail directly; you tell your bank what to do, and it picks the rail.",
+    facts:[["Send","Payment instructions"],["Touch a rail","Never directly"]]},
+  biz:{type:"user",name:"Businesses",sub:"Firms & merchants",
+    p:"Payroll, supplier payments, card acceptance, sweeps. Firms are the heaviest users of ACH (for payroll) and wires (for large settlements).",
+    facts:[["Heavy on","ACH payroll, wires"],["Accept","Cards via merchant banks"]]},
+  gov:{type:"user",name:"Government",sub:"Treasury, IRS, benefits",
+    p:"One of the largest single users of the system — tax collection, Social Security, refunds — overwhelmingly via ACH, with the Fed acting as the Treasury's bank.",
+    facts:[["Moves","Taxes, benefits, refunds"],["Mostly via","ACH"]]},
+  merchants:{type:"user",name:"Merchants",sub:"Card acceptance",
+    p:"Sellers receive an instant authorization at checkout but get paid net, a day or two later, after the card networks and their acquiring bank settle.",
+    facts:[["Get","Auth now, funds later"],["Pay","Interchange + fees"]]},
+
+  /* ---- cross-border ---- */
+  payer:{type:"user",name:"Originator",sub:"US payer",
+    p:"Wants to pay a beneficiary abroad. Hands a single instruction to their bank: pay X, in EUR, to this IBAN. Everything downstream is invisible to them.",
+    facts:[["Provides","Amount, currency, IBAN/BIC"],["Sees","One debit"]]},
+  obank:{type:"bank",name:"Originating bank",sub:"US sender",
+    p:"Debits the payer and kicks off two separate things: a <b>SWIFT message</b> describing the payment, and a <b>settlement</b> path to get value to the beneficiary's bank — usually by routing through correspondent relationships.",
+    facts:[["Starts","Message + settlement"],["Needs","A path to the other bank"]]},
+  swiftmsg:{type:"message",name:"SWIFT message",sub:"MT103 / ISO 20022",
+    p:"<b>No money is in this message.</b> SWIFT is a secure cooperative network that carries the <em>instruction</em> — pay this amount to this account — between banks. It tells banks what to do; the funds move on entirely separate settlement systems.",
+    facts:[["Carries","Instructions only"],["Format","MT → ISO 20022 (MX)"],["Owns","No accounts, no cash"]]},
+  nostro:{type:"bank",name:"Nostro / Vostro",sub:"Correspondent accounts",
+    p:"The trick that makes cross-border work. Your bank keeps an account <em>at</em> a bank overseas (a <b>nostro</b> — \"ours\"); from the other side that same account is a <b>vostro</b> — \"yours\". Paying abroad just means <b>adjusting these balances</b>. The money never crosses the border — the ledgers do.",
+    facts:[["Nostro","\"Our\" account abroad"],["Vostro","\"Your\" account here"],["Effect","Borders are just ledgers"]]},
+  chipsxb:{type:"value",name:"CHIPS / Fedwire",sub:"USD leg settles at home",
+    p:"The dollar side of the trade settles <b>inside the US</b>, over CHIPS or Fedwire, between the two banks' US correspondents. Dollars stay in the US banking system the entire time.",
+    facts:[["Settles","The USD leg only"],["Where","Inside the US"]]},
+  cls:{type:"value",name:"CLS",sub:"FX settlement · payment-vs-payment",
+    p:"When currencies are actually swapped, CLS removes the risk that one bank pays and the other defaults before paying back (Herstatt risk). It settles both legs <b>simultaneously or not at all</b> — payment-versus-payment — across ~18 currencies.",
+    facts:[["Solves","Herstatt / FX risk"],["Method","Payment-vs-payment"],["Currencies","~18"]]},
+  t2:{type:"value",name:"T2 (TARGET2)",sub:"Euro RTGS · the ECB",
+    p:"The euro's real-time gross settlement system, run by the Eurosystem. The <b>EUR leg</b> of the payment settles here, in euro central-bank money, between the beneficiary's bank and its correspondent.",
+    facts:[["Currency","EUR"],["Operator","Eurosystem / ECB"],["Type","RTGS"]]},
+  bbank:{type:"bank",name:"Beneficiary bank",sub:"Foreign receiver",
+    p:"Receives the SWIFT instruction, sees its correspondent account credited via the local system, and finally credits the beneficiary's account. Only now does the payee see the money.",
+    facts:[["Receives","Message + local settlement"],["Then","Credits the payee"]]},
+  payee:{type:"user",name:"Beneficiary",sub:"Foreign payee",
+    p:"The endpoint. Gets paid in local currency, typically minutes to days later depending on how many correspondents the payment had to hop through.",
+    facts:[["Receives","Local currency"],["Lag","Minutes → days"]]},
+
+  /* ---- global ---- */
+  bis:{type:"bis",name:"Bank for International Settlements",sub:"Basel · the rule-setter",
+    p:"The <b>central bank for central banks</b>. It doesn't run payments; it's where central banks coordinate, hold accounts, and write the standards — Basel III capital rules, and (via the CPMI) the rulebook for payment systems worldwide.",
+    facts:[["Based","Basel, Switzerland"],["Sets","Basel III, payment standards"],["Runs payments","No — oversight"]]},
+  swiftgl:{type:"message",name:"SWIFT",sub:"Global messaging fabric",
+    p:"A member-owned cooperative connecting <b>11,000+ institutions across 200+ countries</b>. It standardizes how banks tell each other to move money — but it holds no funds and settles nothing. Its reach is also what makes it a sanctions chokepoint.",
+    facts:[["Connects","11,000+ institutions"],["Carries","Messages only"],["Based","Belgium (cooperative)"]]},
+  fedgl:{type:"reserve",name:"Federal Reserve",sub:"USD · Fedwire / CHIPS",
+    p:"Anchor of the dollar system. Because so much global trade and debt is priced in dollars, the Fed's rails carry far more than just US activity.",
+    facts:[["Currency","USD"],["RTGS","Fedwire"]]},
+  ecb:{type:"reserve",name:"European Central Bank",sub:"EUR · T2 / TARGET2",
+    p:"Runs the euro and its settlement system, T2, on behalf of the Eurosystem of national central banks.",
+    facts:[["Currency","EUR"],["RTGS","T2"]]},
+  boe:{type:"reserve",name:"Bank of England",sub:"GBP · CHAPS",
+    p:"The UK's central bank; sterling's large-value payments settle through its CHAPS system.",
+    facts:[["Currency","GBP"],["RTGS","CHAPS"]]},
+  boj:{type:"reserve",name:"Bank of Japan",sub:"JPY · BOJ-NET",
+    p:"Japan's central bank; the yen settles over BOJ-NET. The yen is a core CLS and reserve currency.",
+    facts:[["Currency","JPY"],["RTGS","BOJ-NET"]]},
+  pboc:{type:"reserve",name:"People's Bank of China",sub:"CNY · CIPS",
+    p:"China's central bank. It backs <b>CIPS</b>, a settlement system for the yuan that is increasingly paired with China's own messaging to reduce reliance on the dollar/SWIFT stack.",
+    facts:[["Currency","CNY"],["System","CIPS"],["Aim","Less SWIFT/USD reliance"]]},
+  emerging:{type:"message",name:"What's changing",sub:"The next layer",
+    p:"The architecture is shifting: <b>ISO 20022</b> is replacing legacy message formats with richer data; central banks are piloting <b>CBDCs</b> and cross-border links like mBridge; and <b>stablecoins</b> are settling value on public networks, outside the rails on this map entirely.",
+    facts:[["Standard","ISO 20022 migration"],["Public money","CBDC pilots, mBridge"],["Private","Stablecoins off-rail"]]}
+};
+
+// ---- default drawer (shown before a click) ----
+const DEFAULT_DRAWER = {
+  us:{pill:"start here",cls:"",name:"Read the stack",sub:"tap any block",
+    p:"Instructions enter at the <b>bottom</b> (people & firms) and climb upward, turning into <b>reserve settlement</b> at the top. Cyan = a message or request. Gold = value actually moving. The two are deliberately separate systems."},
+  xb:{pill:"start here",cls:"",name:"Follow one payment",sub:"left → right",
+    p:"Watch a single USD→EUR payment cross the page. Notice that the <b>SWIFT message</b> (top, cyan) and the <b>settlement</b> (bottom, gold) take totally different routes — and the dollars never actually leave the US."},
+  gl:{pill:"start here",cls:"",name:"One fabric, many islands",sub:"tap a node",
+    p:"Every currency is its own settlement island (gold). SWIFT is the bridge of <b>messages</b> between them (cyan). CLS settles the FX so nobody pays first. The BIS writes the rules above it all (dotted)."}
+};
+
+/* ============================================================
+   BOARD GEOMETRY
+   ============================================================ */
+
+const BOARDS = {
+  us:{
+    vw:1240,vh:860,
+    bands:[
+      {y:36,h:78,label:"Settlement asset"},
+      {y:168,h:96,label:"Large-value settlement"},
+      {y:312,h:96,label:"Retail & instant rails"},
+      {y:474,h:96,label:"Banks"},
+      {y:636,h:96,label:"Originators"}
+    ],
+    nodes:[
+      {id:"fed",x:120,y:44,w:1000,h:62,lbl:"FEDERAL RESERVE",sub:"reserve / master accounts — settlement = reserves",t:"reserve"},
+      {id:"fwf",x:120,y:178,w:218,h:78,lbl:"FEDWIRE FUNDS",sub:"RTGS · final · irrevocable",t:"value"},
+      {id:"fws",x:362,y:178,w:200,h:78,lbl:"FEDWIRE SEC.",sub:"Treasuries · DvP",t:"value"},
+      {id:"chips",x:586,y:178,w:212,h:78,lbl:"CHIPS",sub:"netted · cross-border USD",t:"value"},
+      {id:"nss",x:822,y:178,w:298,h:78,lbl:"NSS",sub:"net settlement utility",t:"value"},
+      {id:"ach",x:120,y:322,w:240,h:78,lbl:"ACH",sub:"batch · payroll · bills",t:"value"},
+      {id:"fednow",x:384,y:322,w:196,h:78,lbl:"FEDNOW",sub:"instant · 24/7",t:"value"},
+      {id:"rtp",x:604,y:322,w:196,h:78,lbl:"RTP",sub:"instant · prefunded",t:"value"},
+      {id:"cards",x:824,y:322,w:296,h:78,lbl:"CARD NETWORKS",sub:"auth now · settle T+1/2",t:"message"},
+      {id:"banks",x:120,y:484,w:236,h:78,lbl:"COMMERCIAL BANKS",sub:"hold deposits + Fed account",t:"bank"},
+      {id:"corr",x:380,y:484,w:236,h:78,lbl:"CORRESPONDENTS",sub:"banks for other banks",t:"bank"},
+      {id:"cu",x:640,y:484,w:216,h:78,lbl:"COMMUNITY / CU",sub:"indirect access",t:"bank"},
+      {id:"fintech",x:880,y:484,w:240,h:78,lbl:"FINTECH / BaaS",sub:"on a sponsor bank",t:"bank"},
+      {id:"consumers",x:120,y:646,w:236,h:78,lbl:"CONSUMERS",sub:"households",t:"user"},
+      {id:"biz",x:380,y:646,w:236,h:78,lbl:"BUSINESSES",sub:"firms · payroll",t:"user"},
+      {id:"gov",x:640,y:646,w:216,h:78,lbl:"GOVERNMENT",sub:"Treasury · benefits",t:"user"},
+      {id:"merchants",x:880,y:646,w:240,h:78,lbl:"MERCHANTS",sub:"card acceptance",t:"user"}
+    ],
+    links:[
+      // rails -> Fed  (settlement, value)
+      {f:"fwf",t:"fed",dir:"v",c:"val"},
+      {f:"fws",t:"fed",dir:"v",c:"val"},
+      {f:"chips",t:"fed",dir:"v",c:"val",lbl:"net"},
+      {f:"nss",t:"fed",dir:"v",c:"val"},
+      {f:"ach",t:"fed",dir:"v",c:"val",lbl:"net"},
+      {f:"fednow",t:"fed",dir:"v",c:"val"},
+      {f:"rtp",t:"fed",dir:"v",c:"val",lbl:"prefund"},
+      // cards settle through NSS/banks
+      {f:"cards",t:"nss",dir:"v",c:"msg"},
+      // banks -> rails
+      {f:"banks",t:"ach",dir:"v",c:"msg"},
+      {f:"banks",t:"fwf",dir:"v",c:"msg"},
+      {f:"corr",t:"chips",dir:"v",c:"msg"},
+      {f:"corr",t:"fwf",dir:"v",c:"msg"},
+      {f:"cu",t:"fednow",dir:"v",c:"msg"},
+      {f:"fintech",t:"rtp",dir:"v",c:"msg"},
+      // users -> banks (instructions)
+      {f:"consumers",t:"banks",dir:"v",c:"msg"},
+      {f:"biz",t:"corr",dir:"v",c:"msg"},
+      {f:"gov",t:"cu",dir:"v",c:"msg"},
+      {f:"merchants",t:"fintech",dir:"v",c:"msg"},
+      {f:"merchants",t:"cards",dir:"v2",c:"msg"}
+    ]
+  },
+
+  xb:{
+    vw:1240,vh:760,
+    bands:[
+      {y:40,h:120,label:"Message layer — SWIFT"},
+      {y:470,h:150,label:"Value layer — domestic settlement + FX"}
+    ],
+    nodes:[
+      {id:"swiftmsg",x:360,y:64,w:520,h:74,lbl:"SWIFT MESSAGE",sub:"MT103 / ISO 20022 — instruction only, no funds",t:"message"},
+      {id:"payer",x:60,y:300,w:190,h:80,lbl:"ORIGINATOR",sub:"US payer",t:"user"},
+      {id:"obank",x:60,y:470,w:230,h:84,lbl:"ORIGINATING BANK",sub:"US sender",t:"bank"},
+      {id:"nostro",x:360,y:470,w:230,h:84,lbl:"NOSTRO / VOSTRO",sub:"correspondent ledgers",t:"bank"},
+      {id:"chipsxb",x:360,y:610,w:230,h:74,lbl:"CHIPS / FEDWIRE",sub:"USD leg · stays in US",t:"value"},
+      {id:"cls",x:640,y:300,w:200,h:84,lbl:"CLS",sub:"FX · payment-vs-payment",t:"value"},
+      {id:"t2",x:650,y:610,w:230,h:74,lbl:"T2 (TARGET2)",sub:"EUR leg · ECB",t:"value"},
+      {id:"bbank",x:950,y:470,w:230,h:84,lbl:"BENEFICIARY BANK",sub:"foreign receiver",t:"bank"},
+      {id:"payee",x:990,y:300,w:190,h:80,lbl:"BENEFICIARY",sub:"foreign payee",t:"user"}
+    ],
+    links:[
+      // message arc across the top
+      {f:"obank",t:"swiftmsg",dir:"v",c:"msg"},
+      {f:"swiftmsg",t:"bbank",dir:"v",c:"msg"},
+      // origination
+      {f:"payer",t:"obank",dir:"v",c:"msg"},
+      // value path
+      {f:"obank",t:"nostro",dir:"h",c:"val"},
+      {f:"nostro",t:"chipsxb",dir:"v",c:"val"},
+      {f:"nostro",t:"cls",dir:"v2",c:"val",lbl:"FX"},
+      {f:"cls",t:"t2",dir:"v2",c:"val"},
+      {f:"t2",t:"bbank",dir:"h",c:"val"},
+      {f:"nostro",t:"bbank",dir:"h",c:"val"},
+      // delivery
+      {f:"bbank",t:"payee",dir:"v",c:"val"}
+    ]
+  },
+
+  gl:{
+    vw:1240,vh:740,
+    bands:[
+      {y:36,h:90,label:"Standards & oversight"},
+      {y:300,h:120,label:"Messaging fabric"},
+      {y:470,h:150,label:"Central banks — settlement islands"}
+    ],
+    nodes:[
+      {id:"bis",x:470,y:44,w:300,h:70,lbl:"BIS — BASEL",sub:"central banks' central bank · Basel III · CPMI",t:"bis"},
+      {id:"swiftgl",x:200,y:316,w:560,h:78,lbl:"SWIFT",sub:"11,000+ institutions · messages only",t:"message"},
+      {id:"emerging",x:800,y:316,w:300,h:78,lbl:"NEXT LAYER",sub:"ISO 20022 · CBDC/mBridge · stablecoins",t:"message"},
+      {id:"cls",x:470,y:470,w:300,h:72,lbl:"CLS",sub:"FX settlement · payment-vs-payment",t:"value"},
+      {id:"fedgl",x:70,y:600,w:200,h:80,lbl:"FED · USD",sub:"Fedwire",t:"reserve"},
+      {id:"ecb",x:296,y:600,w:200,h:80,lbl:"ECB · EUR",sub:"T2",t:"reserve"},
+      {id:"boe",x:522,y:600,w:196,h:80,lbl:"BoE · GBP",sub:"CHAPS",t:"reserve"},
+      {id:"boj",x:744,y:600,w:196,h:80,lbl:"BoJ · JPY",sub:"BOJ-NET",t:"reserve"},
+      {id:"pboc",x:966,y:600,w:204,h:80,lbl:"PBoC · CNY",sub:"CIPS",t:"reserve"}
+    ],
+    links:[
+      // BIS oversight (dotted) to central banks
+      {f:"bis",t:"fedgl",dir:"v",c:"ovr"},
+      {f:"bis",t:"ecb",dir:"v",c:"ovr"},
+      {f:"bis",t:"boe",dir:"v",c:"ovr"},
+      {f:"bis",t:"boj",dir:"v",c:"ovr"},
+      {f:"bis",t:"pboc",dir:"v",c:"ovr"},
+      // SWIFT messaging to central-bank systems
+      {f:"swiftgl",t:"fedgl",dir:"v",c:"msg"},
+      {f:"swiftgl",t:"ecb",dir:"v",c:"msg"},
+      {f:"swiftgl",t:"boe",dir:"v",c:"msg"},
+      {f:"swiftgl",t:"boj",dir:"v",c:"msg"},
+      // CLS settling FX across them (value)
+      {f:"cls",t:"fedgl",dir:"v",c:"val"},
+      {f:"cls",t:"ecb",dir:"v",c:"val"},
+      {f:"cls",t:"boj",dir:"v",c:"val"},
+      {f:"cls",t:"boe",dir:"v",c:"val"}
+    ]
+  }
+};
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+const SVGNS="http://www.w3.org/2000/svg";
+function el(name,attrs){const e=document.createElementNS(SVGNS,name);for(const k in attrs)e.setAttribute(k,attrs[k]);return e;}
+function nodeById(board,id){return BOARDS[board].nodes.find(n=>n.id===id);}
+
+function pathFor(a,b,dir){
+  const ax=a.x+a.w/2, bx=b.x+b.w/2;
+  if(dir==="h"){
+    const sx = a.x<b.x ? a.x+a.w : a.x;
+    const ex = a.x<b.x ? b.x : b.x+b.w;
+    const sy=a.y+a.h/2, ey=b.y+b.h/2;
+    const mx=(sx+ex)/2;
+    return `M ${sx} ${sy} L ${mx} ${sy} L ${mx} ${ey} L ${ex} ${ey}`;
+  }
+  // vertical-ish: from whichever is lower to higher
+  const top = a.y<b.y ? a : b;
+  const bot = a.y<b.y ? b : a;
+  const sx=bot.x+bot.w/2, sy=bot.y;
+  const ex=top.x+top.w/2, ey=top.y+top.h;
+  if(dir==="v2"){ // diagonal-ish elbow offset to reduce overlap
+    const my=(sy+ey)/2 + 6;
+    return `M ${sx} ${sy} L ${sx} ${my} L ${ex} ${my} L ${ex} ${ey}`;
+  }
+  const my=(sy+ey)/2;
+  return `M ${sx} ${sy} L ${sx} ${my} L ${ex} ${my} L ${ex} ${ey}`;
+}
+
+function render(boardKey){
+  const cfg=BOARDS[boardKey];
+  const svg=document.getElementById("svg-"+boardKey);
+  svg.innerHTML="";
+
+  // tier bands
+  cfg.bands.forEach(b=>{
+    svg.appendChild(el("rect",{x:24,y:b.y,width:cfg.vw-48,height:b.h,rx:8,class:"tierband"}));
+    const t=el("text",{x:40,y:b.y+16,class:"tierlabel"});t.textContent=b.label;svg.appendChild(t);
+  });
+
+  // links first (under nodes)
+  let pulseId=0;
+  cfg.links.forEach(lk=>{
+    const a=nodeById(boardKey,lk.f), b=nodeById(boardKey,lk.t);
+    if(!a||!b)return;
+    const d=pathFor(a,b,lk.dir);
+    const cls = lk.c==="val"?"link-val":lk.c==="ovr"?"link-ovr":"link-msg";
+    const id="p-"+boardKey+"-"+(pulseId++);
+    const p=el("path",{d:d,class:cls,id:id});
+    svg.appendChild(p);
+    // link label
+    if(lk.lbl){
+      const mid = d.match(/L (\-?\d+\.?\d*) (\-?\d+\.?\d*)/g);
+      // approximate midpoint
+      const pts=d.split("L").map(s=>s.trim().split(" ").slice(-2).map(Number));
+      const m=pts[Math.floor(pts.length/2)];
+      if(m&&m.length===2){
+        const t=el("text",{x:m[0]+6,y:m[1]-4,class:"linklabel"});t.textContent=lk.lbl;svg.appendChild(t);
+      }
+    }
+    // value pulse (discrete settlement tick)
+    if(lk.c==="val"){
+      const c=el("circle",{r:3.1,class:"pulse"});
+      const anim=el("animateMotion",{dur:(2.4+Math.random()*1.4).toFixed(2)+"s",repeatCount:"indefinite",rotate:"auto"});
+      anim.setAttribute("path",d);
+      c.appendChild(anim);
+      svg.appendChild(c);
+    }
+  });
+
+  // nodes
+  cfg.nodes.forEach(n=>{
+    const g=el("g",{class:"node t-"+n.t,tabindex:"0",role:"button","data-id":n.id,"aria-label":n.lbl});
+    g.appendChild(el("rect",{x:n.x,y:n.y,width:n.w,height:n.h,rx:6,class:"box"}));
+    const lbl=el("text",{x:n.x+16,y:n.y+ (n.sub?30:n.h/2+5),class:"lbl"});lbl.textContent=n.lbl;g.appendChild(lbl);
+    if(n.sub){const s=el("text",{x:n.x+16,y:n.y+50,class:"sub"});s.textContent=n.sub;g.appendChild(s);}
+    g.addEventListener("click",()=>select(boardKey,n.id));
+    g.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(boardKey,n.id);}});
+    svg.appendChild(g);
+  });
+
+  renderDrawer(boardKey,null);
+}
+
+function renderDrawer(boardKey,id){
+  const d=document.getElementById("drawer-"+boardKey);
+  if(!id){
+    const def=DEFAULT_DRAWER[boardKey];
+    d.innerHTML=`<span class="pill">${def.pill}</span>
+      <h3>${def.name}</h3><p class="sub">${def.sub}</p><p>${def.p}</p>
+      <p class="hint">↳ select a block to inspect it</p>`;
+    return;
+  }
+  const info=DETAILS[id];
+  if(!info)return;
+  const facts=(info.facts||[]).map(f=>`<li><span>${f[0]}</span>${f[1]}</li>`).join("");
+  d.innerHTML=`<span class="pill ${info.type}">${info.type}</span>
+    <h3>${info.name}</h3><p class="sub">${info.sub}</p>
+    <p>${info.p}</p>
+    ${facts?`<ul class="facts">${facts}</ul>`:""}`;
+}
+
+function select(boardKey,id){
+  const svg=document.getElementById("svg-"+boardKey);
+  svg.querySelectorAll(".node").forEach(n=>n.classList.toggle("sel",n.getAttribute("data-id")===id));
+  renderDrawer(boardKey,id);
+}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+const buttons=document.querySelectorAll("nav.boards button");
+buttons.forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    const key=btn.dataset.board;
+    buttons.forEach(b=>b.classList.toggle("active",b===btn));
+    document.querySelectorAll(".board").forEach(s=>s.classList.toggle("active",s.id==="board-"+key));
+    window.scrollTo({top:document.querySelector("nav.boards").offsetTop-1,behavior:"instant"});
+  });
+});
+
+["us","xb","gl"].forEach(render);
+</script>
+</body>
+</html>
