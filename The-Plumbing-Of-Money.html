@@ -559,7 +559,7 @@ function render(boardKey){
   // tier bands
   cfg.bands.forEach(b=>{
     svg.appendChild(el("rect",{x:24,y:b.y,width:cfg.vw-48,height:b.h,rx:8,class:"tierband"}));
-    const t=el("text",{x:40,y:b.y+16,class:"tierlabel"});t.textContent=b.label;svg.appendChild(t);
+    const t=el("text",{x:28,y:b.y-7,class:"tierlabel"});t.textContent=b.label;svg.appendChild(t);
   });
 
   // links first (under nodes)
